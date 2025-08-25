@@ -113,16 +113,16 @@ class LinkedIn
                 }
                 */
 
-                // $client->setApiRoot('https://api.linkedin.com/rest/');
+                $client->setApiRoot('https://api.linkedin.com/rest/');
                 $client->setApiHeaders([
                     'Content-Type' => 'application/json',
                     'X-Restli-Protocol-Version' => '2.0.0', // use protocol v2,
-                    'LinkedIn-Version' => '202306',
+                    'LinkedIn-Version' => '202508', // use latest version (year + month)
                 ]);
 
                 // get posts
                 $posts = $client->get(
-                    'ugcPosts?q=authors&authors=List(urn%3Ali%3Aorganization%3A'.$account->linkedin_company_id.')&sortBy=LAST_MODIFIED&count='.$this->maxPosts
+                    'posts?q=author&author=urn%3Ali%3Aorganization%3A'.$account->linkedin_company_id.'&sortBy=LAST_MODIFIED&count='.$this->maxPosts
                 );
 
                 if (!\is_array($posts['elements'])) {
@@ -150,43 +150,63 @@ class LinkedIn
                     $item = [];
 
                     // get post image
-                    $media = $element['specificContent']['com.linkedin.ugc.ShareContent']['media'];
+                    $media = $element['content']['multiImage']['images'][0] ?? $element['content']['media'] ?? null;
 
                     if (!empty($media) && \is_array($media)) {
                         $imgPath = NewsImporter::createImageFolder($account->linkedin_company_id);
-                        $picturePath = $imgPath.str_replace('urn:li:share:', '', $element['id']).'.jpg';
+                        $mediaPath = $imgPath.str_replace('urn:li:share:', '', $element['id']);
 
-                        // use originalUrl of media for image download
-                        $firstImage = $media[0]['originalUrl'] ?? null;
+                        // use id of media for image download
+                        $firstMediaId = $media['id'] ?? null;
+                        $firstMedia = null;
+
+                        if (\is_string($firstMediaId)) {
+                            // Support images atm
+                            if (str_contains($firstMediaId, 'urn:li:image:')) {
+                                $apiPath = 'images/' . urlencode($firstMediaId);
+                                $mediaPath .= '.jpg';
+//                            } elseif (str_contains($firstMediaId, 'urn:li:video:')) {
+//                                $apiPath = 'videos/' . urlencode($firstMediaId);
+//                                $mediaPath .= '.mp4';
+                            } else {
+                                $apiPath = null;
+                            }
+
+                            if (isset($apiPath)) {
+                                $response = $client->get($apiPath);
+                                $firstMedia = \is_array($response) ? ($response['downloadUrl'] ?? null) : null;
+                            }
+                        }
 
                         // use first thumbnail for articles
+                        // dont have an use case for this to test yet
                         if (isset($media[0]) && str_contains($media[0]['media'], 'urn:li:article:') && isset($media[0]['thumbnails'][0])) {
-                            $firstImage = $media[0]['thumbnails'][0]['url'] ?? null;
+                            $firstMedia  = $media[0]['thumbnails'][0]['url'] ?? null;
                         }
 
                         // get first image
-                        if (!file_exists($picturePath) && isset($firstImage)) {
+                        if (!file_exists($mediaPath) && isset($firstMedia)) {
                             // Write to filesystem
-                            $file = new File($picturePath);
-                            $file->write(file_get_contents($firstImage));
+                            $file = new File($mediaPath);
+                            $file->write(file_get_contents($firstMedia));
                             $file->close();
 
                             // Add the resource
-                            $objFile = Dbafs::addResource($picturePath);
+                            $objFile = Dbafs::addResource($mediaPath);
                         }
 
                         // get files model for existing image
-                        if (file_exists($picturePath) && null === $objFile) {
-                            $objFile = FilesModel::findByPath($picturePath);
+                        if (file_exists($mediaPath) && null === $objFile) {
+                            $objFile = FilesModel::findByPath($mediaPath);
                         }
                     }
 
                     $item['id'] = $element['id'];
-                    $item['headline'] = NewsImporter::shortenHeadline($element['specificContent']['com.linkedin.ugc.ShareContent']['shareCommentary']['text'] ?? '');
-                    $item['teaser'] = str_replace("\n", '<br>', $element['specificContent']['com.linkedin.ugc.ShareContent']['shareCommentary']['text'] ?? '');
+                    $item['headline'] = NewsImporter::shortenHeadline($element['commentary'] ?? '');
+                    $item['teaser'] = str_replace("\n", '<br>', $element['commentary'] ?? '');
                     $item['singleSRC'] = null !== $objFile ? $objFile->uuid : '';
-                    $item['date'] = $element['firstPublishedAt'] / 1000;
-                    $item['time'] = $element['firstPublishedAt'] / 1000;
+                    $item['date'] = $element['publishedAt'] / 1000;
+                    $item['time'] = $element['publishedAt'] / 1000;
                     $item['permalink'] = 'https://www.linkedin.com/feed/update/'.$item['id'].'/';
 
                     // @todo get organization and set account picture
