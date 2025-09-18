@@ -30,6 +30,7 @@ use LinkedIn\Client;
 use LinkedIn\Exception;
 use Pdir\SocialFeedBundle\Model\SocialFeedModel;
 use Psr\Log\LogLevel;
+use Symfony\Contracts\HttpClient\HttpClientInterface;
 
 class LinkedIn
 {
@@ -38,6 +39,10 @@ class LinkedIn
     private int $maxPosts = 100;
     private bool $debug = false;
     private bool $ignoreInterval = false;
+
+    public function __construct(private readonly HttpClientInterface $httpClient)
+    {
+    }
 
     /**
      * @throws Exception
@@ -186,9 +191,11 @@ class LinkedIn
 
                         // get first image
                         if (!file_exists($mediaPath) && isset($firstMedia)) {
+
+                            $strImage = $this->fetchImageContent($firstMedia);
                             // Write to filesystem
                             $file = new File($mediaPath);
-                            $file->write(file_get_contents($firstMedia));
+                            $file->write($strImage);
                             $file->close();
 
                             // Add the resource
@@ -262,5 +269,20 @@ class LinkedIn
     public function setMaxPosts($maxPosts): void
     {
         $this->maxPosts = $maxPosts;
+    }
+
+    private function fetchImageContent(string $imageUrl): string
+    {
+        $response = $this->httpClient->request('GET', $imageUrl, [
+            'timeout' => 20,
+            'headers' => [
+                'User-Agent' => 'SocialFeedBot/1.0',
+                'Accept' => 'image/*,*/*;q=0.8',
+            ],
+        ]);
+        if ($response->getStatusCode() !== 200) {
+            throw new \RuntimeException('Image could not be loaded: ' . $imageUrl);
+        }
+        return $response->getContent();
     }
 }

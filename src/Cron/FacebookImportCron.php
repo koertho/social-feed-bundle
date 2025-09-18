@@ -33,6 +33,7 @@ use Facebook\Facebook;
 use Pdir\SocialFeedBundle\Importer\NewsImporter;
 use Pdir\SocialFeedBundle\Model\SocialFeedModel;
 use Psr\Log\LogLevel;
+use Symfony\Contracts\HttpClient\HttpClientInterface;
 
 #[AsCronJob('minutely')]
 class FacebookImportCron
@@ -42,7 +43,7 @@ class FacebookImportCron
     public int $counter = 0;
     private ?object $logger;
 
-    public function __construct(private ContaoFramework $framework)
+    public function __construct(private ContaoFramework $framework, private readonly HttpClientInterface $httpClient)
     {
     }
 
@@ -110,7 +111,7 @@ class FacebookImportCron
                 $imageSrc = $responsePage->getDecodedBody()['picture']['data']['url'];
 
                 if (null !== $imageSrc) {
-                    $strImage = file_get_contents($imageSrc);
+                    $strImage = $this->fetchImageContent($imageSrc);
                     $file = new File($imgPath . $accountId . '.jpg');
                     $file->write($strImage);
                     $file->close();
@@ -252,7 +253,7 @@ class FacebookImportCron
 
             if (\is_array($arrMedia)) {
                 $imageSrc = $arrMedia['media']['image']['src'];
-                $strImage = file_get_contents($imageSrc);
+                $strImage = $this->fetchImageContent($imageSrc);
                 $file = new File($imgPath . $id . '.jpg');
                 $file->write($strImage);
                 $file->close();
@@ -288,5 +289,20 @@ class FacebookImportCron
             $this->logger->log(LogLevel::ERROR, 'Facebook SDK returned an error: ' . $e->getMessage(), ['contao' => new ContaoContext(__METHOD__, 'ERROR')]);
             exit;
         }
+    }
+
+    private function fetchImageContent(string $imageUrl): string
+    {
+        $response = $this->httpClient->request('GET', $imageUrl, [
+            'timeout' => 20,
+            'headers' => [
+                'User-Agent' => 'SocialFeedBot/1.0',
+                'Accept' => 'image/*,*/*;q=0.8',
+            ],
+        ]);
+        if ($response->getStatusCode() !== 200) {
+            throw new \RuntimeException('Image could not be loaded: ' . $imageUrl);
+        }
+        return $response->getContent();
     }
 }
