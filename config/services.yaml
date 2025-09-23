@@ -62,6 +62,7 @@ services:
             - { name: contao.cron, cli: true, priority: 10 }
         arguments:
             - '@contao.framework'
+            - '@http_client'
 
     Pdir\SocialFeedBundle\Cron\InstagramImportCron:
         public: true
@@ -76,7 +77,8 @@ services:
             - { name: contao.cron, cli: true, priority: 10 }
         arguments:
             - '@contao.framework'
-            -
+            - '@http_client'
+
     Pdir\SocialFeedBundle\Cron\RefreshAccessTokenCron:
         public: true
         tags:

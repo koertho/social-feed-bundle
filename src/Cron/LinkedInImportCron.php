@@ -23,11 +23,12 @@ namespace Pdir\SocialFeedBundle\Cron;
 use Contao\CoreBundle\Framework\ContaoFramework;
 use Contao\CoreBundle\DependencyInjection\Attribute\AsCronJob;
 use Pdir\SocialFeedBundle\Importer\LinkedIn;
+use Symfony\Contracts\HttpClient\HttpClientInterface;
 
 #[AsCronJob('minutely')]
 class LinkedInImportCron
 {
-    public function __construct(private ContaoFramework $framework)
+    public function __construct(private ContaoFramework $framework, private HttpClientInterface $httpClient)
     {
     }
     public function __invoke(): void
@@ -35,7 +36,7 @@ class LinkedInImportCron
         $this->framework->initialize();
 
         // run LinkedIn import
-        $importer = new LinkedIn();
+        $importer = new LinkedIn($this->httpClient);
         $importer->setPoorManCronMode(true);
         $importer->import();
     }
