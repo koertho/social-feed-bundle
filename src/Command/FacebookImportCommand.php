@@ -29,6 +29,7 @@ use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
+use Symfony\Contracts\HttpClient\HttpClientInterface;
 
 /**
  * @internal
@@ -43,7 +44,7 @@ use Symfony\Component\Console\Output\OutputInterface;
  */
 class FacebookImportCommand extends Command
 {
-    public function __construct(private ContaoFramework $framework)
+    public function __construct(private ContaoFramework $framework, private HttpClientInterface $httpClient)
     {
         parent::__construct();
     }
@@ -67,7 +68,7 @@ class FacebookImportCommand extends Command
         $output->writeln('Social Feed: Run Facebook import ...');
 
         try {
-            $cron = new FacebookImportCron($this->framework);
+            $cron = new FacebookImportCron($this->framework, $this->httpClient);
             $cron->setPoorManCronMode(false);
             $cron();
         } catch (InvalidArgumentException $e) {

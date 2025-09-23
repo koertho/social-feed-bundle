@@ -29,6 +29,7 @@ use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
+use Symfony\Contracts\HttpClient\HttpClientInterface;
 
 /**
  * @internal
@@ -43,7 +44,7 @@ use Symfony\Component\Console\Output\OutputInterface;
  */
 class LinkedInImportCommand extends Command
 {
-    public function __construct(private ContaoFramework $framework)
+    public function __construct(private ContaoFramework $framework, private HttpClientInterface $httpClient)
     {
         parent::__construct();
     }
@@ -67,7 +68,7 @@ class LinkedInImportCommand extends Command
         $output->writeln('Social Feed: Run LinkedIn import ...');
 
         try {
-            $importer = new LinkedIn();
+            $importer = new LinkedIn($this->httpClient);
             $importer->setIgnoreInterval(true);
             $importer->setDebugMode((bool) $input->getOption('enable-debug'));
             $importer->setMaxPosts((int) $input->getOption('max-posts')?? 100);

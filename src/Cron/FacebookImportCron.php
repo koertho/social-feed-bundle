@@ -33,6 +33,7 @@ use Facebook\Facebook;
 use Pdir\SocialFeedBundle\Importer\NewsImporter;
 use Pdir\SocialFeedBundle\Model\SocialFeedModel;
 use Psr\Log\LogLevel;
+use Symfony\Contracts\HttpClient\HttpClientInterface;
 
 #[AsCronJob('minutely')]
 class FacebookImportCron
@@ -42,7 +43,7 @@ class FacebookImportCron
     public int $counter = 0;
     private ?object $logger;
 
-    public function __construct(private ContaoFramework $framework)
+    public function __construct(private ContaoFramework $framework, private readonly HttpClientInterface $httpClient)
     {
     }
 
@@ -110,7 +111,7 @@ class FacebookImportCron
                 $imageSrc = $responsePage->getDecodedBody()['picture']['data']['url'];
 
                 if (null !== $imageSrc) {
-                    $strImage = file_get_contents($imageSrc);
+                    $strImage = $this->fetchImageContent($imageSrc);
                     $file = new File($imgPath . $accountId . '.jpg');
                     $file->write($strImage);
                     $file->close();
@@ -125,50 +126,52 @@ class FacebookImportCron
                         continue;
                     }
 
-                    if ('' !== $post['from']['name']) {
-                        $image = $this->getFbAttachments($fb, $post['id'], $accessToken, $imgPath);
+                    if (isset($post['from']['name']) && '' !== $post['from']['name']) {
+                        $image = $this->getFbAttachments($fb, $post['id'] ?? '', $accessToken ?? '', $imgPath ?? '');
+                        $imageSrc = '';
+                        $imageTitle = '';
+                        $img = null;
+                        $objFile = null;
+                        $objFileAccount = null;
 
-                        if (!empty($image)) {
-                            $imageSrc = $image['src'];
-                            $imageTitle = $image['title']?? '';
+                        if (!empty($image) && is_array($image)) {
+                            $imageSrc = $image['src'] ?? '';
+                            $imageTitle = $image['title'] ?? '';
                         }
-                        // set variables
-                        if (null !== $post['message'] && \strpos($post['message'], "\n")) {
-                            $title = \mb_substr($post['message'], 0, \strpos($post['message'], "\n"));
+
+                        $message = $post['message'] ?? '';
+                        $title = '';
+                        if (isset($post['message']) && strpos($post['message'], "\n") !== false) {
+                            $title = mb_substr($post['message'], 0, strpos($post['message'], "\n"));
                         } elseif (empty($post['message'])) {
-                            $title = $GLOBALS['TL_LANG']['MSC']['pdirSocialFeedNoTitel'];
+                            $title = $GLOBALS['TL_LANG']['MSC']['pdirSocialFeedNoTitel'] ?? '';
                         } else {
-                            $title = \mb_substr($post['message'], 0);
+                            $title = mb_substr($post['message'] ?? '', 0);
                         }
 
-                        $message = $post['message']?? '';
-                        $message = \str_replace("\n", '<br>', $message);
-                        $timestamp = \strtotime($post['created_time']);
+                        $message = str_replace("\n", '<br>', $message);
+                        $timestamp = isset($post['created_time']) ? strtotime($post['created_time']) : time();
 
                         if (!empty($imageSrc) && !empty($image)) {
-                            $img = $imgPath . $post['id'] . '.jpg';
+                            $img = $imgPath . ($post['id'] ?? '') . '.jpg';
                         }
 
-                        $accountImg = $imgPath . $accountId . '.jpg';
-                        // add/fetch file from DBAFS
+                        $accountImg = $imgPath . ($accountId ?? '') . '.jpg';
+
                         if (null !== $img) {
                             $objFile = Dbafs::addResource($img);
-                            $objFileAccount = Dbafs::addResource($accountImg);
                         }
+                        $objFileAccount = Dbafs::addResource($accountImg);
 
-                        // create new news
                         $objNews = new NewsModel();
-
-                        // set data
-                        $objNews->pid = $account->pdir_sf_fb_news_archive;
-                        $objNews->author = $account->user;
-
-                        if (!empty($imageSrc) && !empty($image)) {
-                            $objNews->singleSRC = $objFile->uuid;
+                        $objNews->pid = $account->pdir_sf_fb_news_archive ?? 0;
+                        $objNews->author = $account->user ?? '';
+                        if (!empty($imageSrc) && !empty($image) && $objFile) {
+                            $objNews->singleSRC = $objFile->uuid ?? '';
                             $objNews->addImage = 1;
                         }
-                        $objNews->tstamp = \time();
-                        $objNews->headline = \mb_substr($title?? '', 0, 255);
+                        $objNews->tstamp = time();
+                        $objNews->headline = mb_substr($title ?? '', 0, 255);
 
                         if ('' === $message && !empty($imageTitle)) {
                             $objNews->teaser = $imageTitle;
@@ -179,12 +182,12 @@ class FacebookImportCron
                         $objNews->date = $timestamp;
                         $objNews->time = $timestamp;
                         $objNews->published = 1;
-                        $objNews->social_feed_type = $account->socialFeedType;
-                        $objNews->social_feed_id = $post['id'];
-                        $objNews->social_feed_account = $post['from']['name'];
-                        $objNews->social_feed_account_picture = $objFileAccount->uuid;
+                        $objNews->social_feed_type = $account->socialFeedType ?? '';
+                        $objNews->social_feed_id = $post['id'] ?? '';
+                        $objNews->social_feed_account = $post['from']['name'] ?? '';
+                        $objNews->social_feed_account_picture = $objFileAccount ? ($objFileAccount->uuid ?? '') : '';
                         $objNews->source = 'external';
-                        $objNews->url = $post['permalink_url'];
+                        $objNews->url = $post['permalink_url'] ?? '';
                         $objNews->target = 1;
                         $objNews->save();
 
@@ -240,13 +243,17 @@ class FacebookImportCron
 
             if (isset($resMedia->getDecodedBody()['data']['0']['subattachments']) && $resMedia->getDecodedBody()['data']['0']['subattachments']['data']['0']['media']) {
                 $arrMedia = $resMedia->getDecodedBody()['data']['0']['subattachments']['data']['0'];
-            } elseif ($resMedia->getDecodedBody()['data']['0']['media']) {
+            } elseif (isset($resMedia->getDecodedBody()['data']['0']['media'])) {
                 $arrMedia = $resMedia->getDecodedBody()['data']['0'];
+            }
+
+            if(!isset($arrMedia)) {
+                return '';
             }
 
             if (\is_array($arrMedia)) {
                 $imageSrc = $arrMedia['media']['image']['src'];
-                $strImage = file_get_contents($imageSrc);
+                $strImage = $this->fetchImageContent($imageSrc);
                 $file = new File($imgPath . $id . '.jpg');
                 $file->write($strImage);
                 $file->close();
@@ -282,5 +289,20 @@ class FacebookImportCron
             $this->logger->log(LogLevel::ERROR, 'Facebook SDK returned an error: ' . $e->getMessage(), ['contao' => new ContaoContext(__METHOD__, 'ERROR')]);
             exit;
         }
+    }
+
+    private function fetchImageContent(string $imageUrl): string
+    {
+        $response = $this->httpClient->request('GET', $imageUrl, [
+            'timeout' => 20,
+            'headers' => [
+                'User-Agent' => 'SocialFeedBot/1.0',
+                'Accept' => 'image/*,*/*;q=0.8',
+            ],
+        ]);
+        if ($response->getStatusCode() !== 200) {
+            throw new \RuntimeException('Image could not be loaded: ' . $imageUrl);
+        }
+        return $response->getContent();
     }
 }
