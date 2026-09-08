@@ -122,7 +122,7 @@ class LinkedIn
                 $client->setApiHeaders([
                     'Content-Type' => 'application/json',
                     'X-Restli-Protocol-Version' => '2.0.0', // use protocol v2,
-                    'LinkedIn-Version' => '202508', // use latest version (year + month)
+                    'LinkedIn-Version' => '202608', // use latest version (year + month)
                 ]);
 
                 // get posts
